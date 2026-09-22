@@ -1,0 +1,1 @@
+typst compile report/main.typ report/PRJ1_202527567_배문성.pdf

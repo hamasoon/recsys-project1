@@ -1,0 +1,3 @@
+macOS/Linux: brew install typst
+Void Linux: apt install typst
+Windows Package Manager: winget install --id Typst.Typst
