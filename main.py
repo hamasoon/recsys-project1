@@ -1,5 +1,5 @@
 # Project 1 : Content-based Recommendation
-# 2025-27567 홍길동
+# 2025-27567 배문성
 
 import os
 import json
@@ -20,8 +20,7 @@ SEMANTIC_CACHE = f"{CACHE_DIR}/semantic_matrix.npz"
 SEMANTIC_MODEL = "all-MiniLM-L6-v2"
 TOP_K = 20
 EPS = 1e-9                                         # 유사도 합이 0일 때 0 나눗셈 방지
-ALPHA = 0.8                                        # validate.py(holdout + 5-fold)로 선택, 0.5 대비 RMSE 개선
-RATING_MIN, RATING_MAX = 1.0, 5.0                  # rating 범위 (4-c 예측 clip용)
+ALPHA = 0.08                                       # validate.py(holdout + 5-fold)로 선택, 0.5 대비 RMSE 개선
 
 
 # game_id(원본 ID, 예: 282440) -> 행렬 row index. 행렬 접근 전 반드시 이 매핑을 거친다
@@ -134,27 +133,20 @@ class ItemCF:
         return [(int(self.game_ids[row]), float(scores[row])) for row in order]
 
 
-# 4-c: 두 ItemCF 점수의 alpha 가중합. RMSE로만 평가되므로 [1, 5]로 clip하고,
-# 이력 없는 user(두 모델 모두 0)는 평균 rating으로 대체 (4-b 추천에는 미적용)
+# 4-c: 두 ItemCF 점수의 alpha 가중합. 후처리 없이 수식 그대로 (이력 없는 user는 두 모델 모두 0)
 class WeightedItemCF:
     def __init__(self, semantic: ItemCF, tfidf: ItemCF, alpha: float = ALPHA):
         self.semantic = semantic
         self.tfidf = tfidf
         self.alpha = alpha
-        self.history = semantic.history
-        self.global_mean = float(self.history.table["rating"].mean())
 
     def predict_pairs(self, user_ids, game_ids) -> np.ndarray:
-        users = np.asarray(user_ids)
-        return self.combine(users, self.semantic.predict_pairs(users, game_ids),
-                            self.tfidf.predict_pairs(users, game_ids))
+        return self.combine(self.semantic.predict_pairs(user_ids, game_ids),
+                            self.tfidf.predict_pairs(user_ids, game_ids))
 
-    # 가중합 + 후처리. 검증 시 두 모델 점수는 한 번만 구하고 alpha만 바꿔 재사용하도록 분리
-    def combine(self, users: np.ndarray, sem_scores: np.ndarray, tfidf_scores: np.ndarray) -> np.ndarray:
-        scores = self.alpha * sem_scores + (1 - self.alpha) * tfidf_scores
-        scores = np.clip(scores, RATING_MIN, RATING_MAX)
-        scores[~self.history.contains(users)] = self.global_mean
-        return scores
+    # 가중합. 검증 시 두 모델 점수는 한 번만 구하고 alpha만 바꿔 재사용하도록 분리
+    def combine(self, sem_scores: np.ndarray, tfidf_scores: np.ndarray) -> np.ndarray:
+        return self.alpha * sem_scores + (1 - self.alpha) * tfidf_scores
 
     def predict(self, user_id: int, game_id: int) -> float:
         return float(self.predict_pairs([user_id], [game_id])[0])

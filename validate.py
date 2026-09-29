@@ -27,7 +27,7 @@ def squared_errors(train: pd.DataFrame, target: pd.DataFrame) -> tuple[np.ndarra
     errors = np.empty((len(GRID), len(y)))
     for i, alpha in enumerate(GRID):
         model.alpha = alpha
-        errors[i] = (model.combine(users, sem, tfidf) - y) ** 2
+        errors[i] = (model.combine(sem, tfidf) - y) ** 2
     return errors, history.contains(users)
 
 
