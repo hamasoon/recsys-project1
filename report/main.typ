@@ -9,6 +9,8 @@
 #set par(justify: true, leading: 0.62em, first-line-indent: 0em, spacing: 0.75em)
 #set list(indent: 0.6em, spacing: 0.6em)
 #show raw: set text(font: ("Consolas", "DejaVu Sans Mono"), size: 8.5pt)
+#show figure.caption: set text(size: 8.5pt, fill: luma(25%))
+#show figure: set block(above: 1.2em, below: 1.2em)
 #show heading.where(level: 1): it => block(above: 2em, below: 0.7em)[
   #text(size: 11pt, weight: "bold", it.body)
   #v(-0.45em)
@@ -37,11 +39,9 @@
 
 = 1. 전체 구조
 
-`main.py`는 데이터 적재(`load_game_data`, `load_ratings_data`) → representation 생성
-(`build_semantic_matrix`, `build_tfidf_matrix`) → 추천·예측(`ItemCF`, `WeightedItemCF`) →
-출력(`write_output`) 순서로 동작한다. representation만 교체하면 동일한 로직을 쓸 수 있으므로
-Item-based CF는 `ItemCF` 클래스 하나로 구현하고 semantics용·TF-IDF용 인스턴스를 각각 생성했다.
-
+`main.py`는 데이터 적재 → representation 생성 → 추천·예측 → 출력 순서로 동작한다.
+representation만 교체하면 동일한 로직을 쓸 수 있으므로 Item-based CF는 `ItemCF` 클래스 하나로 구현하고 
+semantics용·TF-IDF용 인스턴스를 각각 생성했다. 
 `ratings.csv`의 `game_id`는 원본 ID(예: 282440)이므로 `build_game_index`로
 `game_id → 행렬 row index` 매핑을 만들어, 행렬에 접근하기 전에 반드시 이 매핑을 거치도록 했다.
 
@@ -134,36 +134,33 @@ interaction 단위로 나누고, 매번 train 평점만으로 `UserHistory`를 �
   [holdout (이력 있는 user)], [1.3873], [1.3387],
 )
 
-검증쌍의 약 70%는 train 이력이 없는 user라 $alpha$와 무관하게 0으로 예측되고(RMSE 약 3.6), 이 오차가
-전체 RMSE를 지배한다. 그래서 전체 RMSE는 $alpha in [0.01, 0.15]$에서 거의 평탄하고 fold별 최적값도
-0.03–0.33으로 흔들렸다(holdout 자체 최적값 0.15). holdout 쌍 단위 paired bootstrap(1,000회)에서 MSE
-차이의 95% 구간은 $[-0.119, 0.011]$로 0을 포함했는데, 유사도 합이 0에 가까운 소수의 semantic 이상치
-(오차 최대 242)가 분산을 키우기 때문이다. 반면 이력 있는 user만 보면 $alpha$가 커질수록 RMSE가
-일관되게 나빠져($alpha = 0.99$에서 CV 1.95), TF-IDF 예측이 semantic보다 정확하고 작은 $alpha$가
-0.5보다 낫다는 결론은 분명하다.
+#figure(
+  image("alpha_rmse.svg", width: 100%),
+  caption: [$alpha$에 따른 검증 RMSE (seed 0, 세로선은 $alpha = 0.08$과 $0.5$)],
+) <fig-alpha>
 
-= 6. 입력 처리와 출력 포맷
+검증쌍의 약 70%는 train 이력이 없는 user라 $alpha$와 무관하게 0으로 예측된다(RMSE 약 3.6). 이 오차는
+$alpha$에 대해 상수이므로 RMSE 수준만 높이고 곡선을 평탄하게 보이게 할 뿐이며(@fig-alpha 왼쪽), 최적
+$alpha$는 이력 있는 user만으로 정해진다(fold마다 두 기준의 최적값이 같았다).
 
-`read_recommendation_input()`은 `user_id` 목록을, `read_prediction_input()`은
-`user_id;game_id` 쌍을 읽는다. `semantics()`·`tfidf()`는 user당 20줄을, `weighted()`는 쌍당
-1줄을 `"{},{},{:.4f}"` 포맷(공백 없는 콤마, 소수점 4자리 반올림)으로 만들고,
-`write_output()`이 `results/` 폴더를 생성해 `semantics_output.txt`, `tfidf_output.txt`,
-`score_prediction_output.txt`로 저장한다.
+작은 $alpha$가 유리한 이유는 semantic 이상치다. 이력 있는 쌍의 약 3%는 유사도 합이 0에 가까워 semantic
+예측이 $[1, 5]$를 벗어나는데(절댓값 최대 488), 이 3%가 $alpha = 0.5$에서 제곱오차의 13–51%를 차지한다.
+그래서 $alpha$가 커질수록 RMSE가 나빠지고(@fig-alpha 오른쪽), fold별 최적값도 이상치가 클수록 작아져
+0.03–0.33으로 흔들렸다. 이 쌍을 빼면 최적값이 0.81–0.83으로 안정되므로, 나머지 97%에서는 오히려
+semantic이 더 정확하다. holdout paired bootstrap(1,000회)에서 MSE 차이의 95% 구간이 $[-0.119, 0.011]$로
+0을 포함한 것도 이 이상치 때문이다. 명세 수식을 그대로 쓰는 한 이상치를 억제하는 작은 $alpha$가
+0.5보다 낫다.
 
-= 7. 어려웠던 점과 해결 방법
+= 6. 어려웠던 점과 해결 방법
 
-- *메모리*: 명세 그대로 `[19755, 19755]` 유사도 행렬(약 1.5 GiB)과 user × game 평점 행렬
-  (약 103 GiB)을 만들면 메모리가 부족했다. 예측식이 유사도에 선형이라는 점을 이용해 행렬곱
-  순서를 바꾸고(5.2), 평점은 정렬된 테이블로 보관했다(5.1). 캐시 없이 전체 실행에 약 74초가
-  걸리며, `[n, 19755]` 행렬을 명세 순서대로 직접 만든 참조 구현과 4-b 출력 400줄이 모두 같았다.
 - *동점과 정밀도*: 이력이 1개인 user는 후보 점수가 거의 같아서, float32와 float64 중 무엇을
   쓰느냐만으로 TF-IDF 추천이 절반 이상 바뀌었다. "0.01% 차이는 결과에 영향 없음"이라는 명세와
   맞도록 출력과 같은 소수점 4자리로 반올림한 뒤 정렬했다(5.2).
 - *5를 넘는 semantic 점수*: semantic 추천 400줄 중 185줄이 5를 넘었고 최댓값은 906.99였다.
   구현 오류를 의심했지만 원인은 음수 cosine 유사도였다. 평점 $(2, 4, 3)$, 유사도
   $(-0.073, 0.043, 0.030)$이면 분자 0.116, 분모 0.000128이 되어 906.99가 나온다. 가중치에 음수가
-  섞이면 가중 평균이 평점 범위를 벗어나고, 분모가 0에 가까우면 값이 폭발한다. 분모를 $|"sim"|$의
-  합으로 바꾸면 막을 수 있지만, 명세가 "유사도의 합"이고 4-b는 정답과의 일치로 평가하므로 수식을
+  섞이면 가중 평균이 평점 범위를 벗어나고, 분모가 0에 가까우면 값이 폭발한다. Clipping과 같은 방법을 사용하면
+  이를 막을 수 있지만, 명세가 "유사도의 합"이고 4-b는 정답과의 일치로 평가하므로 수식을
   그대로 두었다. TF-IDF는 유사도가 0 이상이라 이런 현상이 없다.
 - *검증 설계와 후처리*: 전체 평점으로 만든 모델을 같은 평점으로 평가하면 정답이 예측에 섞이므로,
   fold마다 train 평점만으로 이력을 다시 만들었다. user의 84.6%가 평점 1개뿐이라 검증쌍의 약 70%는
@@ -173,8 +170,8 @@ interaction 단위로 나누고, 매번 train 평점만으로 `UserHistory`를 �
 
 = 8. 느낀 점
 
-문장 임베딩이 tag보다 많은 정보를 담으니 예측도 더 정확할 것이라 예상했지만, 평점 예측에서는
-TF-IDF가 분명히 나았다. 음수 유사도가 섞이면 가중 평균이 불안정해지는 것이 원인 중 하나로 보이며,
-representation의 표현력만큼 예측식과의 궁합도 중요하다는 것을 알게 되었다. 또 content 기반
+문장 임베딩이 tag보다 많은 정보를 담으니 예측도 더 정확할 것이라 예상했고, 실제로 대부분의 쌍에서는
+semantic이 더 정확했다. 하지만 음수 유사도 때문에 생기는 약 3%의 이상치가 제곱오차를 지배해서 결국
+semantic 비중을 크게 줄여야 했다. representation의 표현력만큼 예측식과의 궁합도 중요하다는 것을 알게 되었다. 또 content 기반
 방법은 user의 과거 평점이 있어야 작동하므로, 평점이 1개뿐인 user가 대부분인 데이터에서는
 cold-start가 성능을 좌우했다.

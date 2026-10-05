@@ -122,7 +122,6 @@ class ItemCF:
         return preds
 
     # 미평가 game 중 상위 k개 [(game_id, score), ...]
-    # 출력되는 4자리 점수 기준 내림차순, 동점이면 game_id 오름차순 (반올림 전 점수는 float 오차가 순서를 정함)
     def recommend(self, user_id: int, k: int = TOP_K) -> list[tuple[int, float]]:
         scores = self.predict_all(user_id)
         rated_rows, _ = self.history.get(user_id)
@@ -220,13 +219,10 @@ def build_tfidf_matrix(tags: list[list[str]]) -> np.ndarray:
 
     return tfidf_matrix
 
-# input_recommendation.txt: 한 줄에 user_id 하나
 def read_recommendation_input() -> list[int]:
     with open(RECOMMEND_INPUT, "r", encoding="utf-8") as f:
         return [int(l.strip()) for l in f.readlines() if l.strip()]
 
-
-# input_score_prediction.txt: 한 줄에 "user_id;game_id"
 def read_prediction_input() -> list[tuple[int, int]]:
     pairs = []
     with open(PREDICTION_INPUT, "r", encoding="utf-8") as f:
@@ -238,15 +234,11 @@ def read_prediction_input() -> list[tuple[int, int]]:
             pairs.append((int(uid), int(gid)))
     return pairs
 
-
-# newline="\n": Windows에서도 CRLF가 아닌 LF로 기록해 OS와 무관하게 같은 파일을 만든다
 def write_output(lines: list[str], filename: str):
     os.makedirs(OUTPUT_DIR, exist_ok=True)
     with open(os.path.join(OUTPUT_DIR, filename), "w", encoding="utf-8", newline="\n") as f:
         for line in lines:
             f.write(line + "\n")
-
-# 출력 한 줄 = "user_id,game_id,score" (공백 없는 콤마, 소수점 4자리 반올림)
 
 # 4-b: user당 상위 TOP_K개. semantics()/tfidf()는 representation만 다르고 출력 로직은 같다
 def recommend_lines(user_ids: list[int], recommendor: ItemCF) -> list[str]:
